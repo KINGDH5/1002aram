@@ -8,6 +8,7 @@ joblib
 pillow
 pyarrow
 fastparquet
+requests
 gdown
 google-cloud-vision
 google-cloud-aiplatform

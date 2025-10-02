@@ -1,14 +1,11 @@
-# image.py (시나리오1 개선판 · 서비스계정 명시 + 엔드포인트 캐싱 지원)
-import os, io, base64, time
+# image.py (시나리오1 - Vertex 인증 secrets 적용)
+import os, io, base64, time, json
 from typing import Tuple, Optional
 from PIL import Image, ImageDraw
 import numpy as np
 from google.cloud import aiplatform
 from google.oauth2 import service_account
-
-# === 폴더 경로 세팅 ===
-BASE_DIR   = r"C:\Users\권도혁\Desktop\시나리오1,2"
-DEFAULT_CRED_PATH = os.path.join(BASE_DIR, "elite-crossbar-471202-p5-2615d9cc47ae.json")
+import streamlit as st
 
 BASE_W, BASE_H = 1920, 1080
 
@@ -48,14 +45,16 @@ def draw_overlay(img, b, r):
 # ---- 엔드포인트 캐시 ----
 _ENDPOINT_CACHE = {}
 
-def init_vertex(project_id: str, region: str, endpoint_id: str, credentials_path: Optional[str] = None):
-    cred_path = credentials_path or DEFAULT_CRED_PATH
-    key = (project_id, region.strip().lower(), endpoint_id, os.path.abspath(cred_path))
+def init_vertex(project_id: str, region: str, endpoint_id: str):
+    # secrets에서 B64 키 불러오기
+    cred_b64 = st.secrets["SCENARIO1"]["GOOGLE_APPLICATION_CREDENTIALS_B64"]
+    cred_info = json.loads(base64.b64decode(cred_b64))
+    creds = service_account.Credentials.from_service_account_info(cred_info)
 
+    key = (project_id, region.strip().lower(), endpoint_id)
     if key in _ENDPOINT_CACHE:
         return _ENDPOINT_CACHE[key]
 
-    creds = service_account.Credentials.from_service_account_file(cred_path)
     aiplatform.init(
         project=project_id,
         location=region.strip().lower(),
@@ -92,18 +91,12 @@ def predict_image(endpoint, image, threshold=70.0, dx=0,dy=0, scale_w=1.0,scale_
         n,c = _predict_one(endpoint, t)
         named.append((n if (n and c>=threshold) else None, c if c>=threshold else 0.0))
 
-    # 앞 5개 = 픽 챔피언
     current = [n for (n,_) in named[:5] if n]
-
-    # 뒤 10개 = 대기석 (Hwei/null 처리)
     bench = []
     for (n,_) in named[5:]:
-        if not n:
-            bench.append(None)
-        elif n.strip().lower() in ["hwei","흐웨이"]:
-            bench.append(None)
-        else:
-            bench.append(n)
+        if not n: bench.append(None)
+        elif n.strip().lower() in ["hwei","흐웨이"]: bench.append(None)
+        else: bench.append(n)
 
     overlay = draw_overlay(image, b, r)
     return current, bench, overlay

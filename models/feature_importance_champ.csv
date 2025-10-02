@@ -1,0 +1,14 @@
+﻿feature,importance
+tenacity,0.5229807
+damage_taken,0.0758739
+skill_haste,0.06522039
+hp_regen,0.052618135
+damage_dealt,0.04556668
+champ1_is_ranged,0.043039627
+CCcount,0.042903665
+champ1_is_ap_items,0.031183751
+champ1_is_ad_items,0.027251055
+shield_absorb,0.026797287
+champ1_is_tank_items,0.024623672
+attack_speed,0.02102277
+energy_regen,0.020918341

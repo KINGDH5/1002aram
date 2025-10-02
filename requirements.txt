@@ -1,0 +1,15 @@
+streamlit
+pandas
+numpy
+scikit-learn
+lightgbm
+xgboost
+joblib
+pillow
+pyarrow
+fastparquet
+google-cloud-vision
+google-cloud-aiplatform
+google-auth
+google-auth-oauthlib
+matplotlib

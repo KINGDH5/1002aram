@@ -1,5 +1,6 @@
-# app.py (시나리오1 개선판 · 엔드포인트 캐싱 반영)
-import os
+# app.py (시나리오1 개선판 - Drive CSV + Secrets 인증)
+import os, re, tempfile
+import gdown
 import streamlit as st
 import pandas as pd
 from PIL import Image
@@ -7,78 +8,44 @@ from PIL import Image
 from ml import read_csv_safe, train_models, get_team_winrate, list_all_champs
 from image import init_vertex, predict_image
 
-# === 기본 폴더 ===
-BASE_DIR   = r"C:\Users\권도혁\Desktop\시나리오1,2"
-DEFAULT_CSV = os.path.join(BASE_DIR, "renamed_data.csv")
+# === Drive CSV 로더 ===
+@st.cache_data(show_spinner=False)
+def load_csv_from_drive_link(drive_url: str) -> pd.DataFrame:
+    m = re.search(r"/d/([a-zA-Z0-9_-]{20,})", drive_url)
+    if not m:
+        m = re.search(r"[?&]id=([a-zA-Z0-9_-]{20,})", drive_url)
+    if not m:
+        raise ValueError("유효한 구글 드라이브 링크 아님")
 
-# ---- Vertex 설정 ----
-PROJECT_ID  = "elite-crossbar-471202-p5"
-REGION      = "us-central1"
-ENDPOINT_ID = "4111886515347390464"
-CRED_PATH   = os.path.join(BASE_DIR, "elite-crossbar-471202-p5-2615d9cc47ae.json")
+    file_id = m.group(1)
+    direct_url = f"https://drive.google.com/uc?id={file_id}"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".csv")
+    tmp_path = tmp.name
+    tmp.close()
 
-# === EN->KO 챔피언 매핑 ===
-EN2KO = {
-    "Aatrox":"아트록스","Ahri":"아리","Akali":"아칼리","Akshan":"아크샨","Alistar":"알리스타",
-    "Amumu":"아무무","Anivia":"애니비아","Annie":"애니","Aphelios":"아펠리오스","Ashe":"애쉬",
-    "Aurelion Sol":"아우렐리온 솔","Aurora":"오로라","Azir":"아지르",
-    "Bard":"바드","Bel'Veth":"벨베스","Blitzcrank":"블리츠크랭크","Brand":"브랜드","Braum":"브라움",
-    "Caitlyn":"케이틀린","Camille":"카밀","Cassiopeia":"카시오페아","Cho'Gath":"초가스","Corki":"코르키",
-    "Darius":"다리우스","Diana":"다이애나","Dr. Mundo":"문도 박사","Draven":"드레이븐",
-    "Ekko":"에코","Elise":"엘리스","Evelynn":"이블린","Ezreal":"이즈리얼",
-    "Fiddlesticks":"피들스틱","Fiora":"피오라","Fizz":"피즈",
-    "Galio":"갈리오","Gangplank":"갱플랭크","Garen":"가렌","Gnar":"나르","Gragas":"그라가스","Graves":"그레이브즈","Gwen":"그웬",
-    "Hecarim":"헤카림","Heimerdinger":"하이머딩거",
-    "Illaoi":"일라오이","Irelia":"이렐리아","Ivern":"아이번",
-    "Janna":"잔나","Jarvan IV":"자르반 4세","Jax":"잭스","Jayce":"제이스","Jhin":"진","Jinx":"징크스",
-    "K'Sante":"크산테","Kai'Sa":"카이사","Kalista":"칼리스타","Karma":"카르마","Karthus":"카서스","Kassadin":"카사딘",
-    "Katarina":"카타리나","Kayle":"케일","Kayn":"케인","Kennen":"케넨","Kha'Zix":"카직스","Kindred":"킨드레드",
-    "Kled":"클레드","Kog'Maw":"코그모",
-    "LeBlanc":"르블랑","Lee Sin":"리 신","Leona":"레오나","Lillia":"릴리아","Lissandra":"리산드라",
-    "Lucian":"루시안","Lulu":"룰루","Lux":"럭스",
-    "Malphite":"말파이트","Malzahar":"말자하","Maokai":"마오카이","Master Yi":"마스터 이",
-    "Milio":"밀리오","Miss Fortune":"미스 포츈","Mordekaiser":"모데카이저","Morgana":"모르가나",
-    "Naafiri":"나피리","Nami":"나미","Nasus":"나서스","Nautilus":"노틸러스","Neeko":"니코","Nidalee":"니달리","Nilah":"닐라",
-    "Nocturne":"녹턴","Nunu & Willump":"누누와 윌럼프",
-    "Olaf":"올라프","Orianna":"오리아나","Ornn":"오른",
-    "Pantheon":"판테온","Poppy":"뽀삐","Pyke":"파이크",
-    "Qiyana":"키아나","Quinn":"퀸",
-    "Rakan":"라칸","Rammus":"람머스","Rek'Sai":"렉사이","Rell":"렐","Renata Glasc":"레나타 글라스크",
-    "Renekton":"레넥톤","Rengar":"렝가","Riven":"리븐","Rumble":"럼블","Ryze":"라이즈",
-    "Samira":"사미라","Sejuani":"세주아니","Senna":"세나","Seraphine":"세라핀","Sett":"세트","Shaco":"샤코","Shen":"쉔",
-    "Shyvana":"쉬바나","Singed":"신지드","Sion":"사이온","Sivir":"시비르","Skarner":"스카너","Smolder":"스몰더","Sona":"소나",
-    "Soraka":"소라카","Swain":"스웨인","Sylas":"사일러스","Syndra":"신드라",
-    "Tahm Kench":"탐 켄치","Taliyah":"탈리야","Talon":"탈론","Taric":"타릭","Teemo":"티모","Thresh":"쓰레쉬",
-    "Tristana":"트리스타나","Trundle":"트런들","Tryndamere":"트린다미어","Twisted Fate":"트위스티드 페이트","Twitch":"트위치",
-    "Udyr":"우디르","Urgot":"우르곳",
-    "Varus":"바루스","Vayne":"베인","Veigar":"베이가","Vel'Koz":"벨코즈","Vex":"벡스","Vi":"바이","Viego":"비에고",
-    "Viktor":"빅토르","Vladimir":"블라디미르","Volibear":"볼리베어",
-    "Warwick":"워윅","Wukong":"오공","Xayah":"자야","Xerath":"제라스","Xin Zhao":"신 짜오",
-    "Yasuo":"야스오","Yone":"요네","Yorick":"요릭","Yuumi":"유미",
-    "Zac":"자크","Zed":"제드","Zeri":"제리","Ziggs":"직스","Zilean":"질리언","Zoe":"조이","Zyra":"자이라",
-}
+    gdown.download(direct_url, tmp_path, quiet=True)
+    df = read_csv_safe(tmp_path)
+    os.remove(tmp_path)
+    return df
 
-def _map_and_filter_detected(names_list, options):
-    opt = set(options or [])
-    out = []
-    for n in names_list or []:
-        k = EN2KO.get(n, n)
-        if k in opt and k not in out:
-            out.append(k)
-    return out
+# === Secrets 불러오기 ===
+drive_url = st.secrets["DRIVE"]["RENAMED_CSV_URL"]
 
+PROJECT_ID  = st.secrets["SCENARIO1"]["PROJECT_ID"]
+REGION      = st.secrets["SCENARIO1"]["REGION"]
+ENDPOINT_ID = st.secrets["SCENARIO1"]["ENDPOINT_ID"]
+
+# === Streamlit UI ===
 st.set_page_config(page_title="ARAM 픽 최적화", layout="wide")
-st.title("⭐ ARAM 픽 최적화 (같은 모델 값, 파일만 3개)")
+st.title("⭐ ARAM 픽 최적화 (Scenario1)")
 
-# 1) CSV 선택
 st.sidebar.header("데이터")
-mode = st.sidebar.radio("CSV", ["기본 경로", "파일 업로드"], horizontal=True)
+mode = st.sidebar.radio("CSV 소스 선택", ["Drive (기본)", "파일 업로드"], horizontal=True)
 df = None
 
-if mode == "기본 경로":
-    path = st.sidebar.text_input("CSV 경로", value=DEFAULT_CSV)
-    if path:
-        df = read_csv_safe(path)
+if mode == "Drive (기본)":
+    with st.spinner("Drive에서 CSV 불러오는 중..."):
+        df = load_csv_from_drive_link(drive_url)
 else:
     up = st.sidebar.file_uploader("CSV 업로드", type=["csv"])
     if up:
@@ -90,7 +57,7 @@ if df is None:
 
 st.dataframe(df.head(3), use_container_width=True)
 
-# 2) 학습
+# 2) 모델 학습
 if "models" not in st.session_state:
     st.session_state.models = None
 
@@ -104,32 +71,31 @@ if not st.session_state.models:
 models = st.session_state.models
 all_champs = list_all_champs(models)
 
-# 3) (선택) 스크린샷 감지
+# 3) 스크린샷 감지 옵션
 st.sidebar.subheader("스크린샷 감지 (옵션)")
 use_vertex = st.sidebar.checkbox("사용", value=False)
-threshold = st.sidebar.slider("신뢰도(%)", 50, 95, 50, 1)
+threshold = st.sidebar.slider("신뢰도(%)", 50, 95, 70, 1)
 
-# ---- 엔드포인트 캐싱 ----
 @st.cache_resource
 def get_endpoint():
-    return init_vertex(PROJECT_ID, REGION, ENDPOINT_ID, CRED_PATH)
+    return init_vertex(PROJECT_ID, REGION, ENDPOINT_ID)
 
 detected_current, detected_bench = [], []
-uploaded = st.file_uploader("픽 화면 스크린샷 (png/jpg)", type=["png","jpg","jpeg"]) if use_vertex else None
+if use_vertex:
+    uploaded = st.file_uploader("픽 화면 스크린샷 (png/jpg)", type=["png","jpg","jpeg"])
+    if uploaded:
+        image = Image.open(uploaded).convert("RGB")
+        st.image(image, caption="업로드 이미지", use_container_width=True)
 
-if uploaded and use_vertex:
-    image = Image.open(uploaded).convert("RGB")
-    st.image(image, caption="업로드 이미지", use_container_width=True)
+        with st.spinner("감지 중..."):
+            endpoint = get_endpoint()
+            cur, bench, overlay = predict_image(endpoint, image, threshold=threshold)
+        st.image(overlay, caption="탐지 영역", use_container_width=True)
 
-    with st.spinner("감지 중..."):
-        endpoint = get_endpoint()
-        cur, bench, overlay = predict_image(endpoint, image, threshold=threshold)
-    st.image(overlay, caption="탐지 영역", use_container_width=True)
+        detected_current = cur[:5]
+        detected_bench = bench[:10]
 
-    detected_current = _map_and_filter_detected(cur, all_champs)[:5]
-    detected_bench = _map_and_filter_detected(bench, all_champs)[:10]
-
-# 4) 우리 팀 5명 선택
+# 4) 우리 팀 선택
 default_team = (detected_current if len(detected_current)==5 else all_champs[:5])
 my_team = st.multiselect("우리 팀 (5명)", options=all_champs, default=default_team, max_selections=5)
 
@@ -141,8 +107,7 @@ wr = get_team_winrate(my_team, models)
 st.markdown(f"### 현재 픽 승률: **{wr*100:.2f}%**")
 
 # 5) 교체 추천
-pool = st.multiselect("교체 후보",
-                      options=[c for c in all_champs if c not in my_team],
+pool = st.multiselect("교체 후보", options=[c for c in all_champs if c not in my_team],
                       default=[c for c in detected_bench if c not in my_team])
 
 target = st.selectbox("교체할 내 챔피언", options=my_team)
@@ -152,7 +117,7 @@ for cand in pool:
     new_team = [cand if x==target else x for x in my_team]
     w = get_team_winrate(new_team, models)
     inc = w - wr
-    rows.append({"교체 챔피언": cand, "새 승률(%)": round(w*100,2), "변화량 Δ(%)": round(inc*100,2)})
+    rows.append({"교체 챔피언": cand, "새 승률(%)": round(w*100,2), "Δ(%)": round(inc*100,2)})
     if inc > best_inc:
         best, best_inc = (target,cand,w), inc
 

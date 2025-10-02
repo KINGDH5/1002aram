@@ -4,14 +4,9 @@ numpy
 scikit-learn
 lightgbm
 xgboost
-joblib
-pillow
-pyarrow
-fastparquet
+matplotlib
+Pillow
 requests
 gdown
-google-cloud-vision
 google-cloud-aiplatform
 google-auth
-google-auth-oauthlib
-matplotlib

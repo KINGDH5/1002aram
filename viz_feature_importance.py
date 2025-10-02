@@ -1,48 +1,40 @@
-# -*- coding: utf-8 -*-
-import matplotlib
-matplotlib.use("Agg")  # GUI 없이 저장
-import matplotlib.pyplot as plt
+# viz_feature_importance.py (시나리오1 피처 중요도 시각화 - 경로 수정)
+import os
 import pandas as pd
-from pathlib import Path
+import matplotlib.pyplot as plt
+import streamlit as st
 
-IN_DIR  = Path("models")
-OUT_DIR = Path("models"); OUT_DIR.mkdir(exist_ok=True)
-
-# Windows 한글 폰트(맑은 고딕) — 필요 없으면 이 두 줄 주석 처리
-plt.rcParams["font.family"] = "Malgun Gothic"
-plt.rcParams["axes.unicode_minus"] = False  # 음수 깨짐 방지
-
-def plot_importance(csv_name: str, title: str, top: int = 20):
-    csv_path = IN_DIR / csv_name
-    assert csv_path.exists(), f"파일 없음: {csv_path}"
-
+def plot_feature_importance(csv_path: str, top_n: int = 20):
     df = pd.read_csv(csv_path)
-    # 안전 정렬
-    df = df.sort_values("importance", ascending=False).head(top)
+    if "feature" not in df.columns or "importance" not in df.columns:
+        raise ValueError("CSV에 feature/importance 컬럼이 필요합니다.")
 
-    # 그리기(가로 막대)
-    plt.figure(figsize=(10, 8))
-    ax = df.sort_values("importance").plot(
-        kind="barh", x="feature", y="importance", legend=False
-    )
-    ax.set_title(title)
-    ax.set_xlabel("Importance")
-    ax.set_ylabel("Feature")
+    df = df.sort_values("importance", ascending=False).head(top_n)
 
-    # 값 라벨(막대 끝에 중요도 숫자 표기)
-    for p in ax.patches:
-        w = p.get_width()
-        ax.text(w, p.get_y() + p.get_height()/2, f"{w:.3f}",
-                va="center", ha="left")
+    plt.figure(figsize=(8, 6))
+    plt.barh(df["feature"], df["importance"])
+    plt.xlabel("Importance")
+    plt.ylabel("Feature")
+    plt.title("Top Feature Importances")
+    plt.gca().invert_yaxis()
 
-    plt.tight_layout()
-    out_png = OUT_DIR / (csv_name.replace(".csv", f"_top{top}.png"))
-    plt.savefig(out_png, dpi=220)
+    # 저장
+    out_path = os.path.join(".", "models", "feature_importance.png")
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    plt.savefig(out_path, bbox_inches="tight")
     plt.close()
-    print(f"[OK] {out_png.name}")
+    return out_path
+
+def main():
+    st.title("Feature Importance 시각화")
+
+    csv_path = st.text_input("피처 중요도 CSV 경로 입력", value="./models/feature_importance.csv")
+    if not os.path.exists(csv_path):
+        st.error("CSV 파일을 찾을 수 없습니다.")
+        st.stop()
+
+    out_path = plot_feature_importance(csv_path)
+    st.image(out_path, caption="Feature Importance (Top 20)", use_container_width=True)
 
 if __name__ == "__main__":
-    # 필요에 따라 top 개수 조절
-    plot_importance("feature_importance_champ.csv",    "Champ-wise Feature Importance (Top 20)", top=20)
-    plot_importance("feature_importance_synergy.csv",  "Synergy Feature Importance (Top 20)",    top=20)
-    plot_importance("feature_importance_stat_tag.csv", "Stat/Tag Feature Importance (Top 20)",   top=20)
+    main()

@@ -9,4 +9,6 @@ Pillow
 requests
 gdown
 google-cloud-aiplatform
+google-cloud-vision
 google-auth
+requests
